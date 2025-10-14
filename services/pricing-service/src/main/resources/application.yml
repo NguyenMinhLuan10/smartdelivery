@@ -1,0 +1,50 @@
+spring:
+  application:
+    name: pricing-service
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/pricing?useSSL=false&serverTimezone=UTC&characterEncoding=UTF-8
+    username: root
+    password: MinhLuan.1004
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update            # tạo/cập nhật bảng tự động
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQL8Dialect
+        format_sql: true
+    open-in-view: false
+
+server:
+  port: 8082                      # tránh đụng 8081 của identity
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    prefer-ip-address: true
+
+# Dùng chung secret với identity/gateway để parse JWT khi cần
+app:
+  jwt:
+    secret: "MinhLuanSuperSecretKey_1234567890"
+    expiration: 3600000          # không dùng trực tiếp ở pricing nhưng để đồng bộ
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+logging:
+  level:
+    root: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql: TRACE
+    com.smartdelivery.pricing: DEBUG

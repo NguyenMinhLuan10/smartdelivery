@@ -1,0 +1,52 @@
+spring:
+  application:
+    name: order-service
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/order?useSSL=false&serverTimezone=UTC&characterEncoding=UTF-8
+    username: root
+    password: MinhLuan.1004
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+    open-in-view: false
+
+server:
+  port: 8083
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    prefer-ip-address: true
+
+app:
+  jwt:
+    secret: "MinhLuanSuperSecretKey_1234567890"
+  services:
+    pricing-base: "http://localhost:8085/pricing" # GỌI QUA GATEWAY
+  tracking:
+    code-prefix: "SD"
+  qr:
+    dir: "src/main/resources/images/qrcodes"       # ảnh QR lưu tại đây
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+logging:
+  level:
+    com.smartdelivery.order: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql: TRACE

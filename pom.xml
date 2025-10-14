@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.smartdelivery</groupId>
+  <artifactId>smartdelivery</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+
+  <name>SmartDelivery</name>
+  <description>Parent POM for SmartDelivery microservices</description>
+
+  <!-- Liệt kê tất cả module con -->
+  <modules>
+    <!-- Infra -->
+    <module>infra/discovery-server</module>
+    <module>infra/api-gateway</module>
+
+    <!-- Services -->
+    <module>services/identity-service</module>
+    <module>services/customer-service</module>
+    <module>services/pricing-service</module>
+    <module>services/order-service</module>
+    <module>services/shipment-service</module>
+    <module>services/dispatch-service</module>
+    <module>services/delivery-service</module>
+    <module>services/tracking-service</module>
+    <module>services/driver-service</module>
+    <module>services/payment-service</module>
+    <module>services/cod-service</module>
+    <module>services/notification-service</module>
+    <module>services/ops-risk-service</module>
+    <module>services/ai-service</module>
+  </modules>
+
+  <properties>
+    <!-- Dùng Java 17 cho đồng bộ (các service có thể override nếu cần) -->
+    <java.version>17</java.version>
+
+    <!-- Versions: Boot 3.3.x khớp Cloud 2023.0.x (Leyton) -->
+    <spring.boot.version>3.3.5</spring.boot.version>
+    <spring.cloud.version>2023.0.4</spring.cloud.version>
+
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+  </properties>
+
+  <!-- Quản lý phiên bản dependencies cho toàn bộ modules -->
+  <dependencyManagement>
+    <dependencies>
+      <!-- Spring Boot BOM -->
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring.boot.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+
+      <!-- Spring Cloud BOM (Leyton) -->
+      <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-dependencies</artifactId>
+        <version>${spring.cloud.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <!-- Compiler chung -->
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>3.13.0</version>
+          <configuration>
+            <release>${java.version}</release>
+          </configuration>
+        </plugin>
+
+        <!-- Spring Boot -->
+        <plugin>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-maven-plugin</artifactId>
+          <version>${spring.boot.version}</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+
+  <!-- KHÔNG thêm repo milestones/snapshots để tránh lỗi không tìm thấy artifact -->
+</project>

@@ -1,0 +1,68 @@
+spring:
+  application:
+    name: identity-service
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/identity?useSSL=false&serverTimezone=UTC&characterEncoding=UTF-8
+    username: root
+    password: MinhLuan.1004
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQL8Dialect
+        format_sql: true
+    open-in-view: false
+
+  # Mail để gửi OTP xác thực/khôi phục mật khẩu
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: minhluandt1004@gmail.com
+    password: ytgg iuhg cpub nxxm
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+
+server:
+  port: 8081
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    prefer-ip-address: true
+
+# ✅ JWT config (khớp với JwtUtil của bạn)
+app:
+  jwt:
+    secret: "MinhLuanSuperSecretKey_1234567890"   # secret phải đủ dài >= 32 ký tự
+    expiration: 3600000    # thời gian sống access token (1h, đơn vị ms)
+
+  frontend:
+    verify-url: "http://localhost:3000/verify-email"
+
+# Actuator (sức khoẻ, metric)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+logging:
+  level:
+    root: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql: TRACE
+    com.smartdelivery.identity: DEBUG

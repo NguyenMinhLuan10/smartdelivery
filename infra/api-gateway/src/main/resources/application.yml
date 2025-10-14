@@ -1,0 +1,106 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: api-gateway
+
+  cloud:
+    discovery:
+      enabled: true
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+      routes:
+        # ========== Identity ==========
+        - id: identity
+          uri: lb://identity-service
+          predicates:
+            - Path=/auth/**
+        - id: identity-users
+          uri: lb://identity-service
+          predicates:
+            - Path=/users/**
+
+        # ========== Pricing ==========
+        - id: pricing
+          uri: lb://pricing-service
+          predicates:
+            - Path=/pricing/**
+
+        # ========== Order ==========
+        - id: order
+          uri: lb://order-service
+          predicates:
+            - Path=/orders/**
+        - id: order-internal
+          uri: lb://order-service
+          predicates:
+            - Path=/internal/orders/**
+
+        # ========== NEW: Shipment ==========
+        # THÊM MỚI: tất cả nghiệp vụ vận hành task/leg/hub cho shipment-service
+        - id: shipment
+          uri: lb://shipment-service
+          predicates:
+            - Path=/ship/**,/driver/**,/hub/**
+
+        # ========== NEW: Driver ==========
+        # THÊM MỚI: quản lý hồ sơ tài xế cho driver-service
+        - id: driver
+          uri: lb://driver-service
+          predicates:
+            - Path=/drivers/**,/internal/drivers/**
+
+        # ========== Dispatch (mỏng / proxy UI) ==========
+        # GIỮ: chỉ còn các API dưới /dispatch/** nếu bạn còn dùng màn Dispatcher gọi qua đây
+        - id: dispatch
+          uri: lb://dispatch-service
+          predicates:
+            - Path=/dispatch/**
+
+      # (Tuỳ chọn) CORS cho frontend
+      globalcors:
+        corsConfigurations:
+          '[/**]':
+            allowedOrigins: "*"
+            allowedMethods: "*"
+            allowedHeaders: "*"
+
+  main:
+    web-application-type: reactive
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+  instance:
+    prefer-ip-address: true
+
+# JWT & whitelist
+app:
+  jwt:
+    secret: "MinhLuanSuperSecretKey_1234567890"
+  security:
+    public-paths:
+      - /auth/register
+      - /auth/verify-email
+      - /auth/resend-verification
+      - /auth/login
+      - /auth/2fa/verify
+      - /auth/token/refresh
+      - /auth/forgot-password
+      - /auth/reset-password
+      - /users/ping
+      - /pricing/quote
+      - /pricing/service-types
+      - /orders/track
+      - /actuator/**
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
