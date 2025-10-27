@@ -28,11 +28,15 @@ public class Order {
     private String customerName;
     private String customerPhone;
 
+    // ➕ receiver snapshot
+    private String receiverName;
+    private String receiverPhone;
+
     // points (text + optional geo fields)
     private String pickupFormattedAddr;
     private String dropoffFormattedAddr;
 
-    // optional: để mở rộng sau (geocode/map-service)
+    // optional geo (reserve cho map-service)
     private BigDecimal pickupLat;
     private BigDecimal pickupLng;
     private BigDecimal dropoffLat;

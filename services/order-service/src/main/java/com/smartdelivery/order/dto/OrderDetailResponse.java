@@ -19,17 +19,13 @@ public class OrderDetailResponse {
     private String pickupAddress;
     private String dropoffAddress;
 
-    // NEW
-    private BigDecimal distanceKm;
-    private Integer travelTimeMin;
+    // Người nhận (snapshot)
+    private String receiverName;
+    private String receiverPhone;
 
-    // NEW (optional – có thể null)
-    private BigDecimal pickupLat;
-    private BigDecimal pickupLng;
-    private BigDecimal dropoffLat;
-    private BigDecimal dropoffLng;
-    private String pickupProvince;
-    private String dropoffProvince;
+    // từ Pricing snapshot
+    private Double distanceKm;      // Double để FE parse dễ
+    private Integer travelTimeMin;
 
     private BigDecimal priceAmount;
     private String priceCurrency;
@@ -42,4 +38,7 @@ public class OrderDetailResponse {
     private List<TrackingTimelineEventDto> timeline;
 
     private String qrCodeUrl; // images/qrcodes/<tracking>.png
+
+    // Items (tuỳ chọn – hiển thị)
+    private List<OrderItemDto> items;
 }

@@ -1,4 +1,3 @@
-// security/SecurityConfig.java
 package com.smartdelivery.order.security;
 
 import lombok.RequiredArgsConstructor;

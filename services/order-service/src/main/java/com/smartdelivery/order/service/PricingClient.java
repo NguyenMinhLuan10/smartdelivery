@@ -1,4 +1,3 @@
-// service/PricingClient.java
 package com.smartdelivery.order.service;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -35,6 +34,7 @@ public class PricingClient {
         headers.setContentType(MediaType.APPLICATION_JSON);
         if (authHeader != null) headers.set(HttpHeaders.AUTHORIZATION, authHeader);
         var entity = new HttpEntity<>(body, headers);
-        return rt.postForEntity(pricingBase + "/quote", entity, QuoteResp.class).getBody();
+        var resp = rt.postForEntity(pricingBase + "/quote", entity, QuoteResp.class).getBody();
+        return resp;
     }
 }

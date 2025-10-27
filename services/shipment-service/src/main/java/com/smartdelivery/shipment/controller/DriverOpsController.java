@@ -17,7 +17,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/driver")
 @RequiredArgsConstructor
-public class     DriverOpsController {
+public class DriverOpsController {
 
     private final DriverFlowService flow;
 

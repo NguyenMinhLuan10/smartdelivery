@@ -1,4 +1,3 @@
-// dto/ConfirmRequest.java
 package com.smartdelivery.order.dto;
 
 import jakarta.validation.constraints.NotBlank;

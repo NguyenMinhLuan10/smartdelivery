@@ -1,4 +1,3 @@
-// repository/AttachmentRepository.java
 package com.smartdelivery.order.repository;
 
 import com.smartdelivery.order.model.Attachment;

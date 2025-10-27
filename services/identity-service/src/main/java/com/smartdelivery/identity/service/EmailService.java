@@ -60,6 +60,16 @@ public class EmailService {
         }
     }
 
+    // EmailService.java
+
+    @Async
+    public void sendTwoFaEnableEmail(User user, String otp){
+        String html = "<p>Bạn đang bật xác thực 2 lớp. Mã xác nhận: <b>"
+                + otp + "</b> (hết hạn sau 10 phút)</p>";
+        send(user.getEmail(), "[SmartDelivery] Xác nhận bật 2FA", html);
+    }
+
+
     private static String enc(String s){
         return URLEncoder.encode(s, StandardCharsets.UTF_8);
     }

@@ -34,16 +34,11 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     // Chỉ các path này là public (không yêu cầu JWT)
     private static final String[] PUBLIC_PATHS = new String[] {
-            "/auth/register",
-            "/auth/verify-email",
-            "/auth/resend-verification",
-            "/auth/login",
-            "/auth/2fa/verify",
-            "/auth/token/refresh",
-            "/auth/forgot-password",
-            "/auth/reset-password",
-            "/users/ping",
-            "/actuator/**"
+            "/auth/register", "/auth/verify-email", "/auth/resend-verification",
+            "/auth/login", "/auth/2fa/verify", "/auth/token/refresh",
+            "/auth/forgot-password", "/auth/reset-password",
+            "/users/ping", "/pricing/quote", "/pricing/service-types",
+            "/orders/track", "/actuator/**"
     };
 
     @Override

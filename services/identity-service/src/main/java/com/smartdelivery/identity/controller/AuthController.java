@@ -67,6 +67,24 @@ public class AuthController {
         return Map.of("twoFA", false, "message", "2FA has been disabled");
     }
 
+    // AuthController.java
+    @PostMapping("/2fa/enable/request")
+    @PreAuthorize("isAuthenticated()")
+    public Map<String,Object> requestEnable2FA(Authentication authn) {
+        UUID me = UUID.fromString(authn.getName());
+        auth.requestEnable2FA(me);
+        return Map.of("sent", true, "message", "OTP has been sent to your email");
+    }
+
+    @PostMapping("/2fa/enable/confirm")
+    @PreAuthorize("isAuthenticated()")
+    public Map<String,Object> confirmEnable2FA(Authentication authn,
+                                               @Valid @RequestBody TwoFaVerifyRequest req) {
+        UUID me = UUID.fromString(authn.getName());
+        auth.confirmEnable2FA(me, req.getCode());
+        return Map.of("twoFA", true, "message", "2FA has been enabled");
+    }
+
     // ---------- Token / Logout ----------
     @PostMapping("/token/refresh")
     public TokenPairResponse refresh(@Valid @RequestBody RefreshTokenRequest req) {

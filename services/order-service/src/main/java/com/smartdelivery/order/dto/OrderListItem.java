@@ -1,4 +1,3 @@
-// dto/OrderListItem.java
 package com.smartdelivery.order.dto;
 
 import lombok.Builder; import lombok.Data;
@@ -9,7 +8,7 @@ public class OrderListItem {
     private UUID id;
     private String trackingCode;
     private String status;
-    private BigDecimal priceAmount;
+    private BigDecimal priceAmount; // BigDecimal để khớp DB
     private Boolean isCod;
     private OffsetDateTime createdAt;
 }

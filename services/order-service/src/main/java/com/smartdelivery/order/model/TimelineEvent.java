@@ -1,4 +1,3 @@
-// model/TimelineEvent.java
 package com.smartdelivery.order.model;
 
 import jakarta.persistence.*;
@@ -19,7 +18,7 @@ public class TimelineEvent {
     private String entityType; // ORDER
     private UUID entityId;
 
-    private String eventType;  // ORDER_STATUS_CHANGED
+    private String eventType;  // ORDER_STATUS_CHANGED/ORDER_CREATED...
     private String fromStatus;
     private String toStatus;
     private String reason;

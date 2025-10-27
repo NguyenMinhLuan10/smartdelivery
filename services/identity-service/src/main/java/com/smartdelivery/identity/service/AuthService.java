@@ -175,6 +175,52 @@ public class AuthService {
         emailService.sendTwoFaEmail(u, otp);
     }
 
+    // AuthService.java
+
+    @Transactional
+    public void requestEnable2FA(UUID userId) {
+        User u = users.findById(userId).orElseThrow();
+
+        // revoke OTP cùng loại còn hiệu lực
+        otpRepo.findValid(u.getId(), "2FA_EN", Instant.now())
+                .forEach(o -> { o.setExpiresAt(Instant.now()); otpRepo.save(o); });
+
+        String otp = sixDigits();
+
+        OtpToken row = OtpToken.builder()
+                .userId(u.getId())
+                .kind("2FA_EN")
+                .otpHash(CryptoUtil.hmacOtp(otp))
+                .expiresAt(Instant.now().plus(10, ChronoUnit.MINUTES))
+                .build();
+        otpRepo.save(row);
+
+        // dùng mail service gửi OTP bật 2FA
+        emailService.sendTwoFaEnableEmail(u, otp);
+        audit(u.getId(), "2FA_ENABLE_OTP_SENT", "OTP", row.getId(), Map.of());
+    }
+
+    @Transactional
+    public void confirmEnable2FA(UUID userId, String code) {
+        User u = users.findById(userId).orElseThrow();
+
+        String hashed = CryptoUtil.hmacOtp(code.trim());
+        var valids = otpRepo.findValid(u.getId(), "2FA_EN", Instant.now());
+        OtpToken hit = valids.stream()
+                .filter(v -> hashed.equals(v.getOtpHash()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("OTP sai/hết hạn"));
+
+        hit.setUsedAt(Instant.now());
+        otpRepo.save(hit);
+
+        u.setTwofaEnabled(true);
+        users.save(u);
+
+        audit(u.getId(), "2FA_ENABLED", "USER", u.getId(), Map.of("via","OTP"));
+    }
+
+
     // ===== REFRESH / LOGOUT =====
 
     @Transactional

@@ -1,4 +1,3 @@
-// model/Attachment.java
 package com.smartdelivery.order.model;
 
 import jakarta.persistence.*;

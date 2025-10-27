@@ -1,4 +1,3 @@
-// dto/TrackingTimelineEventDto.java
 package com.smartdelivery.order.dto;
 
 import lombok.Builder; import lombok.Data;

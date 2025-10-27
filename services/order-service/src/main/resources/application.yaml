@@ -1,13 +1,11 @@
 spring:
   application:
     name: order-service
-
   datasource:
     url: jdbc:mysql://localhost:3306/order?useSSL=false&serverTimezone=UTC&characterEncoding=UTF-8
     username: root
     password: MinhLuan.1004
     driver-class-name: com.mysql.cj.jdbc.Driver
-
   jpa:
     hibernate:
       ddl-auto: update
@@ -33,11 +31,11 @@ app:
   jwt:
     secret: "MinhLuanSuperSecretKey_1234567890"
   services:
-    pricing-base: "http://localhost:8085/pricing" # GỌI QUA GATEWAY
+    pricing-base: "http://localhost:8085/pricing"
   tracking:
     code-prefix: "SD"
   qr:
-    dir: "src/main/resources/images/qrcodes"       # ảnh QR lưu tại đây
+    dir: "src/main/resources/images/qrcodes"
 
 management:
   endpoints:

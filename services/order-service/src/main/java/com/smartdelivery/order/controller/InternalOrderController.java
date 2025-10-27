@@ -1,4 +1,3 @@
-// controller/InternalOrderController.java
 package com.smartdelivery.order.controller;
 
 import com.smartdelivery.order.dto.StatusChangeRequest;

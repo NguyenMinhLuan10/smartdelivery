@@ -3,177 +3,223 @@ package com.smartdelivery.order.service;
 import com.smartdelivery.order.dto.*;
 import com.smartdelivery.order.model.Attachment;
 import com.smartdelivery.order.model.Order;
+import com.smartdelivery.order.model.OrderItem;
 import com.smartdelivery.order.model.TimelineEvent;
 import com.smartdelivery.order.repository.AttachmentRepository;
+import com.smartdelivery.order.repository.OrderItemRepository;
 import com.smartdelivery.order.repository.OrderRepository;
 import com.smartdelivery.order.repository.TimelineEventRepository;
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.OffsetDateTime;
 import java.util.*;
 
 @Service
 @RequiredArgsConstructor
 public class OrderService {
 
-    private final OrderRepository orders;
-    private final TimelineEventRepository events;
-    private final AttachmentRepository attachments;
+    private final OrderRepository orderRepo;
+    private final OrderItemRepository orderItemRepo;
+    private final AttachmentRepository attachmentRepo;
+    private final TimelineEventRepository eventRepo;
 
-    private final TrackingCodeUtil tracking;
     private final PricingClient pricing;
+    private final TrackingCodeUtil tcUtil;
     private final QrService qr;
 
     @Transactional
-    public OrderDetailResponse create(Authentication auth, String authorizationHeader, CreateOrderRequest req){
-        UUID customerId = UUID.fromString(auth.getName());
+    public OrderDetailResponse create(Authentication auth, String authHeader, CreateOrderRequest req) {
 
-        // 1) gọi pricing
-        Map<String,Object> body = Map.of(
-                "serviceTypeCode", req.getServiceTypeCode(),
-                "pickup",  Map.of("address", req.getPoints().getPickupAddress()),
-                "dropoff", Map.of("address", req.getPoints().getDropoffAddress()),
-                "weightKg", req.getWeightKg(),
-                "volumetricWeightKg", req.getWeightKg()
-        );
-        var quoted = pricing.quote(body, authorizationHeader);
+        // Call Pricing (an toàn null)
+        Map<String,Object> pb = new HashMap<>();
+        pb.put("serviceTypeCode", req.getServiceTypeCode());
+        pb.put("pickupAddress", req.getPoints().getPickupAddress());
+        pb.put("dropoffAddress", req.getPoints().getDropoffAddress());
+        pb.put("weightKg", req.getWeightKg());
+        if (req.getValueAmount() != null) pb.put("valueAmount", req.getValueAmount());
 
-        // 2) tạo order
+        PricingClient.QuoteResp quote = null;
+        try { quote = pricing.quote(pb, authHeader); } catch (Exception ignored){}
+
+        // Create Order
         Order o = new Order();
-        o.setTrackingCode(tracking.gen());
-        o.setCustomerUserId(customerId);
+        o.setTrackingCode(tcUtil.gen());
+
+        // snapshot người gửi
         o.setCustomerName(req.getCustomer().getName());
         o.setCustomerPhone(req.getCustomer().getPhone());
+        if (auth != null) {
+            try { o.setCustomerUserId(UUID.fromString(auth.getName())); } catch (Exception ignored) {}
+        }
+
+        // snapshot người nhận
+        if (req.getReceiver() != null) {
+            o.setReceiverName(req.getReceiver().getName());
+            o.setReceiverPhone(req.getReceiver().getPhone());
+        }
+
+        // points
         o.setPickupFormattedAddr(req.getPoints().getPickupAddress());
         o.setDropoffFormattedAddr(req.getPoints().getDropoffAddress());
+
+        // parcel/pricing
         o.setServiceTypeCode(req.getServiceTypeCode());
         o.setWeightKg(req.getWeightKg());
-        o.setValueAmount(Optional.ofNullable(req.getValueAmount()).orElse(BigDecimal.ZERO));
+        o.setValueAmount(req.getValueAmount());
 
-        o.setPriceAmount(quoted.getPriceAmount());
-        o.setPriceCurrency(quoted.getCurrency());
-        o.setEtaPromisedAt(quoted.getEtaPromisedAt());
+        if (quote != null) {
+            if (quote.getPriceAmount() != null) o.setPriceAmount(quote.getPriceAmount());
+            o.setPriceCurrency(quote.getCurrency());
+            if (quote.getDistanceKm() != null) o.setDistanceKm(quote.getDistanceKm());
+            if (quote.getTravelTimeMin() != null) o.setTravelTimeMin(quote.getTravelTimeMin());
+            o.setEtaPromisedAt(quote.getEtaPromisedAt());
+        }
 
-        // NEW: snapshot distance/time
-        o.setDistanceKm(quoted.getDistanceKm());
-        o.setTravelTimeMin(quoted.getTravelTimeMin());
-
-        // geo/province để null giai đoạn này (sau này map-service set)
         o.setStatus("CREATED");
-        o.setCreatedAt(OffsetDateTime.now());
-        orders.save(o);
+        o = orderRepo.save(o);
 
-        // 3) QR
+        // Save items nếu có
+        if (req.getGoods() != null && !req.getGoods().isEmpty()) {
+            for (var g : req.getGoods()) {
+                OrderItem it = OrderItem.builder()
+                        .orderId(o.getId())
+                        .name(g.getName())
+                        .qty(g.getQty())
+                        .weightKg(BigDecimal.valueOf(g.getWeightKg()))
+                        .valueAmount(BigDecimal.valueOf(g.getValue()))
+                        .build();
+                orderItemRepo.save(it);
+            }
+        }
+
+        // QR
         String qrUrl = qr.generateAndSavePng(o.getTrackingCode());
-        attachments.save(Attachment.builder()
+        attachmentRepo.save(Attachment.builder()
                 .entityType("ORDER").entityId(o.getId())
                 .url(qrUrl).mime("image/png").build());
 
-        // 4) timeline CREATED
-        events.save(TimelineEvent.builder()
+        // timeline
+        eventRepo.save(TimelineEvent.builder()
                 .entityType("ORDER").entityId(o.getId())
-                .eventType("ORDER_STATUS_CHANGED")
-                .fromStatus(null).toStatus("CREATED").reason("customer_created").build());
+                .eventType("ORDER_CREATED")
+                .toStatus("CREATED")
+                .ts(java.time.OffsetDateTime.now())
+                .build());
 
-        return toDetail(o, qrUrl, true);
+        return toDetail(o, qrUrl);
+    }
+
+    public Page<OrderListItem> myOrders(UUID userId, Pageable pageable){
+        return orderRepo.findByCustomerUserId(userId, pageable)
+                .map(o -> OrderListItem.builder()
+                        .id(o.getId())
+                        .trackingCode(o.getTrackingCode())
+                        .status(o.getStatus())
+                        .priceAmount(o.getPriceAmount() == null ? BigDecimal.ZERO : o.getPriceAmount())
+                        .isCod(Boolean.FALSE) // có thể thay bằng logic COD thực tế
+                        .createdAt(o.getCreatedAt())
+                        .build());
     }
 
     public OrderDetailResponse getByTracking(String code){
-        Order o = orders.findByTrackingCode(code).orElseThrow();
-        String qrUrl = attachments.findByEntityTypeAndEntityIdOrderByCreatedAtAsc("ORDER", o.getId())
-                .stream().filter(a -> a.getMime().contains("image")).findFirst().map(Attachment::getUrl).orElse(null);
-        return toDetail(o, qrUrl, true);
+        Order o = orderRepo.findByTrackingCode(code)
+                .orElseThrow(() -> new NoSuchElementException("Order not found"));
+        String qrUrl = attachmentRepo.findByEntityTypeAndEntityIdOrderByCreatedAtAsc("ORDER", o.getId())
+                .stream().findFirst().map(Attachment::getUrl).orElse(null);
+        return toDetail(o, qrUrl);
     }
 
-    @Transactional
     public void confirm(String trackingCode, ConfirmRequest req, Authentication auth){
-        Order o = orders.findByTrackingCode(trackingCode).orElseThrow();
-        if (!Objects.equals(o.getCustomerUserId(), UUID.fromString(auth.getName())))
-            throw new IllegalStateException("Forbidden");
-        if (!List.of("CREATED","CONFIRMED").contains(o.getStatus()))
-            throw new IllegalStateException("Invalid state");
+        Order o = orderRepo.findByTrackingCode(trackingCode)
+                .orElseThrow(() -> new NoSuchElementException("Order not found"));
+        // ví dụ: nếu method COD → chuyển sang CONFIRMED
         String from = o.getStatus();
         o.setStatus("CONFIRMED");
-        orders.save(o);
-        events.save(TimelineEvent.builder()
+        orderRepo.save(o);
+
+        eventRepo.save(TimelineEvent.builder()
                 .entityType("ORDER").entityId(o.getId())
-                .eventType("ORDER_STATUS_CHANGED").fromStatus(from).toStatus(o.getStatus())
-                .reason("customer_confirm").build());
+                .eventType("ORDER_STATUS_CHANGED")
+                .fromStatus(from).toStatus("CONFIRMED")
+                .reason("method=" + req.getMethod())
+                .build());
     }
 
-    @Transactional
     public void cancel(String trackingCode, Authentication auth){
-        Order o = orders.findByTrackingCode(trackingCode).orElseThrow();
-        if (!Objects.equals(o.getCustomerUserId(), UUID.fromString(auth.getName())))
-            throw new IllegalStateException("Forbidden");
-        if (!List.of("CREATED","CONFIRMED").contains(o.getStatus()))
-            throw new IllegalStateException("Only CREATED/CONFIRMED can be cancelled");
+        Order o = orderRepo.findByTrackingCode(trackingCode)
+                .orElseThrow(() -> new NoSuchElementException("Order not found"));
         String from = o.getStatus();
         o.setStatus("CANCELLED");
-        orders.save(o);
-        events.save(TimelineEvent.builder()
+        orderRepo.save(o);
+
+        eventRepo.save(TimelineEvent.builder()
                 .entityType("ORDER").entityId(o.getId())
-                .eventType("ORDER_STATUS_CHANGED").fromStatus(from).toStatus("CANCELLED")
-                .reason("customer_cancel").build());
+                .eventType("ORDER_STATUS_CHANGED")
+                .fromStatus(from).toStatus("CANCELLED")
+                .reason("user_cancel")
+                .build());
     }
 
-    @Transactional
-    public void transition(UUID orderId, StatusChangeRequest req){
-        Order o = orders.findById(orderId).orElseThrow();
+    public void transition(UUID id, StatusChangeRequest req){
+        Order o = orderRepo.findById(id)
+                .orElseThrow(() -> new NoSuchElementException("Order not found"));
         String from = o.getStatus();
         o.setStatus(req.getToStatus());
-        orders.save(o);
-        events.save(TimelineEvent.builder()
+        orderRepo.save(o);
+
+        eventRepo.save(TimelineEvent.builder()
                 .entityType("ORDER").entityId(o.getId())
                 .eventType("ORDER_STATUS_CHANGED")
                 .fromStatus(from).toStatus(req.getToStatus())
-                .reason(req.getReason()).build());
+                .reason(req.getReason())
+                .build());
     }
 
-    public Page<OrderListItem> myOrders(UUID uid, Pageable pageable){
-        return orders.findByCustomerUserId(uid, pageable).map(o ->
-                OrderListItem.builder()
-                        .id(o.getId()).trackingCode(o.getTrackingCode()).status(o.getStatus())
-                        .priceAmount(o.getPriceAmount()).isCod(false)
-                        .createdAt(o.getCreatedAt()).build());
-    }
+    private OrderDetailResponse toDetail(Order o, String qrUrl) {
+        var evs = eventRepo.findByEntityTypeAndEntityIdOrderByTsAsc("ORDER", o.getId());
+        var timeline = evs.stream().map(e -> TrackingTimelineEventDto.builder()
+                .type(e.getEventType())
+                .fromStatus(e.getFromStatus())
+                .toStatus(e.getToStatus())
+                .reason(e.getReason())
+                .ts(e.getTs())
+                .build()).toList();
 
-    private OrderDetailResponse toDetail(Order o, String qrUrl, boolean includeTimeline){
-        var tl = includeTimeline
-                ? events.findByEntityTypeAndEntityIdOrderByTsAsc("ORDER", o.getId())
-                .stream().map(e -> TrackingTimelineEventDto.builder()
-                        .type(e.getEventType()).fromStatus(e.getFromStatus()).toStatus(e.getToStatus())
-                        .reason(e.getReason()).ts(e.getTs()).build()).toList()
-                : List.<TrackingTimelineEventDto>of();
+        var items = orderItemRepo.findByOrderId(o.getId()).stream().map(it ->
+                OrderItemDto.builder()
+                        .desc(it.getName())
+                        .qty(it.getQty())
+                        .weight(it.getWeightKg() != null ? it.getWeightKg().doubleValue() : null)
+                        .value(it.getValueAmount() != null ? it.getValueAmount().doubleValue() : null)
+                        .build()
+        ).toList();
 
         return OrderDetailResponse.builder()
                 .id(o.getId())
                 .trackingCode(o.getTrackingCode())
                 .status(o.getStatus())
                 .serviceTypeCode(o.getServiceTypeCode())
-                .pickupAddress(o.getPickupFormattedAddr())
-                .dropoffAddress(o.getDropoffFormattedAddr())
-
-                .distanceKm(o.getDistanceKm())
-                .travelTimeMin(o.getTravelTimeMin())
-                .pickupLat(o.getPickupLat())
-                .pickupLng(o.getPickupLng())
-                .dropoffLat(o.getDropoffLat())
-                .dropoffLng(o.getDropoffLng())
-                .pickupProvince(o.getPickupProvince())
-                .dropoffProvince(o.getDropoffProvince())
-
-                .priceAmount(o.getPriceAmount())
-                .priceCurrency(o.getPriceCurrency())
+                .pickupAddress(nz(o.getPickupFormattedAddr()))
+                .dropoffAddress(nz(o.getDropoffFormattedAddr()))
+                .receiverName(nz(o.getReceiverName()))
+                .receiverPhone(nz(o.getReceiverPhone()))
+                .distanceKm(o.getDistanceKm() != null ? o.getDistanceKm().doubleValue() : 0.0d)
+                .travelTimeMin(o.getTravelTimeMin() != null ? o.getTravelTimeMin() : 0)
+                .priceAmount(o.getPriceAmount() != null ? o.getPriceAmount() : BigDecimal.ZERO)
+                .priceCurrency(nz(o.getPriceCurrency()))
+                .isCod(Boolean.FALSE)
+                .codAmount(BigDecimal.ZERO)
                 .etaPromisedAt(o.getEtaPromisedAt())
+                .timeline(timeline)
                 .qrCodeUrl(qrUrl)
-                .timeline(tl)
+                .items(items)
                 .build();
     }
+
+    private static String nz(String s){ return s == null ? "" : s; }
 }

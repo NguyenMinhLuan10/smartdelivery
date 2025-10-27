@@ -1,12 +1,12 @@
-// dto/OrderItemDto.java
 package com.smartdelivery.order.dto;
 
+import lombok.Builder;
 import lombok.Data;
 
-@Data
+@Data @Builder
 public class OrderItemDto {
-    private String desc;
+    private String desc;      // name
     private Integer qty;
-    private Double weight;
-    private Double value;
+    private Double weight;    // kg
+    private Double value;     // VND
 }

@@ -1,4 +1,3 @@
-// controller/OrderController.java
 package com.smartdelivery.order.controller;
 
 import com.smartdelivery.order.dto.*;
@@ -24,7 +23,7 @@ public class OrderController {
     public OrderDetailResponse create(Authentication auth,
                                       HttpServletRequest http,
                                       @Valid @RequestBody CreateOrderRequest req){
-        String authHeader = http.getHeader("Authorization"); // forward tới Gateway
+        String authHeader = http.getHeader("Authorization"); // forward tới Pricing
         return svc.create(auth, authHeader, req);
     }
 
@@ -52,5 +51,4 @@ public class OrderController {
         svc.cancel(trackingCode, auth);
         return Map.of("cancelled", true);
     }
-
 }
