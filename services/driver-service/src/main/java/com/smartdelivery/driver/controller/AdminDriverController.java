@@ -10,7 +10,8 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
 
-@RestController @RequestMapping
+@RestController
+@RequestMapping
 @RequiredArgsConstructor
 public class AdminDriverController {
     private final DriverService svc;
@@ -21,11 +22,14 @@ public class AdminDriverController {
 
     @GetMapping("/drivers/{id}")
     @PreAuthorize("hasAnyRole('ADMIN','DISPATCHER')")
-    public DriverSummary get(@PathVariable UUID id){ return svc.get(id); }
+    public DriverSummary get(@PathVariable("id") UUID id){
+        return svc.get(id);
+    }
 
     @PatchMapping("/drivers/{id}/status")
     @PreAuthorize("hasAnyRole('ADMIN','DISPATCHER')")
-    public DriverSummary status(@PathVariable UUID id, @RequestBody StatusReq req){
+    public DriverSummary status(@PathVariable("id") UUID id,
+                                @RequestBody StatusReq req){
         return svc.status(id, req.getOnlineStatus(), req.getActive());
     }
 

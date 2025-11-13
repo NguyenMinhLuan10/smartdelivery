@@ -36,6 +36,12 @@ app:
     code-prefix: "SD"
   qr:
     dir: "src/main/resources/images/qrcodes"
+  firebase:
+    enabled: true
+    # Đường dẫn file service account (đặt file ở project root/.smartdelivery-secrets/firebase-admin.json)
+    credentials: ${GOOGLE_APPLICATION_CREDENTIALS:.smartdelivery-secrets/firebase-admin.json}
+    # URL Realtime Database của bạn (copy từ Firebase console)
+    db-url: ${FIREBASE_DB_URL:https://smartdelivery-4c34f-default-rtdb.firebaseio.com}
 
 management:
   endpoints:
@@ -48,3 +54,4 @@ logging:
     com.smartdelivery.order: DEBUG
     org.hibernate.SQL: DEBUG
     org.hibernate.type.descriptor.sql: TRACE
+

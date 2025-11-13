@@ -6,6 +6,8 @@ import org.hibernate.annotations.UuidGenerator;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 @Entity
@@ -23,20 +25,17 @@ public class Order {
     @Column(unique = true)
     private String trackingCode;
 
-    // customer snapshot
     private UUID customerUserId;
     private String customerName;
     private String customerPhone;
 
-    // ➕ receiver snapshot
     private String receiverName;
     private String receiverPhone;
 
-    // points (text + optional geo fields)
     private String pickupFormattedAddr;
     private String dropoffFormattedAddr;
 
-    // optional geo (reserve cho map-service)
+    // geo
     private BigDecimal pickupLat;
     private BigDecimal pickupLng;
     private BigDecimal dropoffLat;
@@ -46,24 +45,39 @@ public class Order {
 
     private String serviceTypeCode;
 
-    // parcel
     private BigDecimal weightKg;
     private BigDecimal valueAmount;
 
-    // pricing snapshot
     private BigDecimal priceAmount;
     private String priceCurrency;
 
-    // NEW: snapshot từ Pricing
-    private BigDecimal distanceKm;   // vd 12.35
-    private Integer travelTimeMin;   // vd 46
+    private BigDecimal distanceKm;
+    private Integer travelTimeMin;
 
-    // lifecycle
-    private String status;                 // CREATED/.../DELIVERED/FAILED/CANCELLED
+    private String status;
     private OffsetDateTime etaPromisedAt;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 
+    // driver được gán
+    @Column(name = "assigned_driver_id")
+    private UUID assignedDriverId;
+
     @PrePersist void preInsert(){ createdAt = OffsetDateTime.now(); }
     @PreUpdate  void preUpdate(){ updatedAt = OffsetDateTime.now(); }
+
+    public Map<String,Object> toGeoMap() {
+        Map<String,Object> m = new HashMap<>();
+        if (pickupLat != null && pickupLng != null) {
+            m.put("pickupLat", pickupLat.doubleValue());
+            m.put("pickupLng", pickupLng.doubleValue());
+        }
+        if (dropoffLat != null && dropoffLng != null) {
+            m.put("dropoffLat", dropoffLat.doubleValue());
+            m.put("dropoffLng", dropoffLng.doubleValue());
+        }
+        if (pickupProvince != null)  m.put("pickupProvince", pickupProvince);
+        if (dropoffProvince != null) m.put("dropoffProvince", dropoffProvince);
+        return m.isEmpty() ? null : m;
+    }
 }

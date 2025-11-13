@@ -8,7 +8,8 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
-@Data @Builder
+@Data
+@Builder
 public class OrderDetailResponse {
     private UUID id;
     private String trackingCode;
@@ -19,12 +20,18 @@ public class OrderDetailResponse {
     private String pickupAddress;
     private String dropoffAddress;
 
-    // Người nhận (snapshot)
+    // toạ độ
+    private Double pickupLat;
+    private Double pickupLng;
+    private Double dropoffLat;
+    private Double dropoffLng;
+
+    // người nhận
     private String receiverName;
     private String receiverPhone;
 
-    // từ Pricing snapshot
-    private Double distanceKm;      // Double để FE parse dễ
+    // pricing snapshot
+    private Double distanceKm;
     private Integer travelTimeMin;
 
     private BigDecimal priceAmount;
@@ -36,9 +43,9 @@ public class OrderDetailResponse {
     private OffsetDateTime etaPromisedAt;
 
     private List<TrackingTimelineEventDto> timeline;
-
-    private String qrCodeUrl; // images/qrcodes/<tracking>.png
-
-    // Items (tuỳ chọn – hiển thị)
+    private String qrCodeUrl;
     private List<OrderItemDto> items;
+
+    // 👇 QUAN TRỌNG: để Flutter lấy driverId
+    private UUID assignedDriverId;
 }

@@ -1,6 +1,7 @@
 package com.smartdelivery.order.service;
 
 import com.smartdelivery.order.dto.*;
+import com.smartdelivery.order.firebase.FirebaseGateway; // 👉 THÊM
 import com.smartdelivery.order.model.Attachment;
 import com.smartdelivery.order.model.Order;
 import com.smartdelivery.order.model.OrderItem;
@@ -17,6 +18,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.*;
 
 @Service
@@ -31,6 +33,8 @@ public class OrderService {
     private final PricingClient pricing;
     private final TrackingCodeUtil tcUtil;
     private final QrService qr;
+
+    private final FirebaseGateway firebase; // 👉 THÊM
 
     @Transactional
     public OrderDetailResponse create(Authentication auth, String authHeader, CreateOrderRequest req) {
@@ -63,9 +67,19 @@ public class OrderService {
             o.setReceiverPhone(req.getReceiver().getPhone());
         }
 
-        // points
+        // points (text)
         o.setPickupFormattedAddr(req.getPoints().getPickupAddress());
         o.setDropoffFormattedAddr(req.getPoints().getDropoffAddress());
+
+        // 👇 THÊM: nếu FE gửi tọa độ thì lưu luôn
+        if (req.getPoints().getPickupLat() != null && req.getPoints().getPickupLng() != null) {
+            o.setPickupLat(BigDecimal.valueOf(req.getPoints().getPickupLat()));
+            o.setPickupLng(BigDecimal.valueOf(req.getPoints().getPickupLng()));
+        }
+        if (req.getPoints().getDropoffLat() != null && req.getPoints().getDropoffLng() != null) {
+            o.setDropoffLat(BigDecimal.valueOf(req.getPoints().getDropoffLat()));
+            o.setDropoffLng(BigDecimal.valueOf(req.getPoints().getDropoffLng()));
+        }
 
         // parcel/pricing
         o.setServiceTypeCode(req.getServiceTypeCode());
@@ -108,8 +122,17 @@ public class OrderService {
                 .entityType("ORDER").entityId(o.getId())
                 .eventType("ORDER_CREATED")
                 .toStatus("CREATED")
-                .ts(java.time.OffsetDateTime.now())
+                .ts(OffsetDateTime.now())
                 .build());
+
+        // 👉 THÊM: đẩy lên Firebase ngay lúc tạo
+        firebase.upsertOrder(
+                o.getId(),
+                o.getTrackingCode(),
+                o.getStatus(),
+                o.toGeoMap(),
+                o.getAssignedDriverId() // lúc tạo thường null
+        );
 
         return toDetail(o, qrUrl);
     }
@@ -121,7 +144,7 @@ public class OrderService {
                         .trackingCode(o.getTrackingCode())
                         .status(o.getStatus())
                         .priceAmount(o.getPriceAmount() == null ? BigDecimal.ZERO : o.getPriceAmount())
-                        .isCod(Boolean.FALSE) // có thể thay bằng logic COD thực tế
+                        .isCod(Boolean.FALSE)
                         .createdAt(o.getCreatedAt())
                         .build());
     }
@@ -137,7 +160,6 @@ public class OrderService {
     public void confirm(String trackingCode, ConfirmRequest req, Authentication auth){
         Order o = orderRepo.findByTrackingCode(trackingCode)
                 .orElseThrow(() -> new NoSuchElementException("Order not found"));
-        // ví dụ: nếu method COD → chuyển sang CONFIRMED
         String from = o.getStatus();
         o.setStatus("CONFIRMED");
         orderRepo.save(o);
@@ -165,7 +187,8 @@ public class OrderService {
                 .build());
     }
 
-    public void transition(UUID id, StatusChangeRequest req){
+    @Transactional
+    public Order transition(UUID id, StatusChangeRequest req){
         Order o = orderRepo.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Order not found"));
         String from = o.getStatus();
@@ -178,6 +201,37 @@ public class OrderService {
                 .fromStatus(from).toStatus(req.getToStatus())
                 .reason(req.getReason())
                 .build());
+
+        // 👉 tùy bạn: nếu muốn mỗi lần đổi status cũng đẩy Firebase thì thêm dòng này
+        firebase.upsertOrder(
+                o.getId(),
+                o.getTrackingCode(),
+                o.getStatus(),
+                o.toGeoMap(),
+                o.getAssignedDriverId()
+        );
+
+        return o;
+    }
+
+    // 👇 THÊM: để internal controller gán driver
+    @Transactional
+    public Order assignDriver(UUID id, UUID driverId) {
+        Order o = orderRepo.findById(id)
+                .orElseThrow(() -> new NoSuchElementException("Order not found"));
+        o.setAssignedDriverId(driverId);
+        orderRepo.save(o);
+
+        // 👉 gán driver xong thì cũng đẩy lại để FE track dùng đúng driver
+        firebase.upsertOrder(
+                o.getId(),
+                o.getTrackingCode(),
+                o.getStatus(),
+                o.toGeoMap(),
+                o.getAssignedDriverId()
+        );
+
+        return o;
     }
 
     private OrderDetailResponse toDetail(Order o, String qrUrl) {
@@ -206,6 +260,10 @@ public class OrderService {
                 .serviceTypeCode(o.getServiceTypeCode())
                 .pickupAddress(nz(o.getPickupFormattedAddr()))
                 .dropoffAddress(nz(o.getDropoffFormattedAddr()))
+                .pickupLat(o.getPickupLat() != null ? o.getPickupLat().doubleValue() : null)
+                .pickupLng(o.getPickupLng() != null ? o.getPickupLng().doubleValue() : null)
+                .dropoffLat(o.getDropoffLat() != null ? o.getDropoffLat().doubleValue() : null)
+                .dropoffLng(o.getDropoffLng() != null ? o.getDropoffLng().doubleValue() : null)
                 .receiverName(nz(o.getReceiverName()))
                 .receiverPhone(nz(o.getReceiverPhone()))
                 .distanceKm(o.getDistanceKm() != null ? o.getDistanceKm().doubleValue() : 0.0d)
@@ -218,6 +276,7 @@ public class OrderService {
                 .timeline(timeline)
                 .qrCodeUrl(qrUrl)
                 .items(items)
+                .assignedDriverId(o.getAssignedDriverId())
                 .build();
     }
 

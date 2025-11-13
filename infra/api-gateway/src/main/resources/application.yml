@@ -5,6 +5,9 @@ spring:
   application:
     name: api-gateway
 
+  main:
+    web-application-type: reactive
+
   cloud:
     discovery:
       enabled: true
@@ -13,9 +16,10 @@ spring:
         locator:
           enabled: true
           lower-case-service-id: true
+
       routes:
-        # ========== Identity ==========
-        - id: identity
+        # ================== IDENTITY ==================
+        - id: identity-auth
           uri: lb://identity-service
           predicates:
             - Path=/auth/**
@@ -24,13 +28,13 @@ spring:
           predicates:
             - Path=/users/**
 
-        # ========== Pricing ==========
+        # ================== PRICING ==================
         - id: pricing
           uri: lb://pricing-service
           predicates:
             - Path=/pricing/**
 
-        # ========== Order ==========
+        # ================== ORDER ==================
         - id: order
           uri: lb://order-service
           predicates:
@@ -40,37 +44,43 @@ spring:
           predicates:
             - Path=/internal/orders/**
 
-        # ========== NEW: Shipment ==========
-        # THÊM MỚI: tất cả nghiệp vụ vận hành task/leg/hub cho shipment-service
-        - id: shipment
-          uri: lb://shipment-service
+        # ===== DRIVER-SERVICE: presence + info (chỉ các endpoint cụ thể) =====
+        - id: driver-presence
+          uri: lb://driver-service
           predicates:
-            - Path=/ship/**,/driver/**,/hub/**
+            - Path=/driver/presence,/driver/location/ping,/driver/me
 
-        # ========== NEW: Driver ==========
-        # THÊM MỚI: quản lý hồ sơ tài xế cho driver-service
-        - id: driver
+        # ===== DRIVER-SERVICE: admin + internal =====
+        - id: driver-admin-internal
           uri: lb://driver-service
           predicates:
             - Path=/drivers/**,/internal/drivers/**
 
-        # ========== Dispatch (mỏng / proxy UI) ==========
-        # GIỮ: chỉ còn các API dưới /dispatch/** nếu bạn còn dùng màn Dispatcher gọi qua đây
+        # ===== SHIPMENT-SERVICE: driver ops (CHỈ các endpoint driver-task/scan) =====
+        - id: shipment-driver-ops
+          uri: lb://shipment-service
+          predicates:
+            - Path=/driver/tasks/**,/driver/scan/**
+
+        # ================== SHIPMENT ==================
+        - id: shipment
+          uri: lb://shipment-service
+          predicates:
+            - Path=/ship/**,/hub/**
+
+        # ================== DISPATCH ==================
         - id: dispatch
           uri: lb://dispatch-service
           predicates:
             - Path=/dispatch/**
 
-      # (Tuỳ chọn) CORS cho frontend
+        # CORS chung cho FE
       globalcors:
-        corsConfigurations:
-          '[/**]':
-            allowedOrigins: "*"
-            allowedMethods: "*"
-            allowedHeaders: "*"
-
-  main:
-    web-application-type: reactive
+          corsConfigurations:
+            '[/**]':
+              allowedOrigins: "*"
+              allowedMethods: "*"
+              allowedHeaders: "*"
 
 eureka:
   client:
@@ -79,12 +89,15 @@ eureka:
   instance:
     prefer-ip-address: true
 
-# JWT & whitelist
+# ================== JWT & WHITELIST ==================
 app:
   jwt:
+    # nhớ trùng với các service khác
     secret: "MinhLuanSuperSecretKey_1234567890"
+
   security:
     public-paths:
+      # auth
       - /auth/register
       - /auth/verify-email
       - /auth/resend-verification
@@ -93,11 +106,14 @@ app:
       - /auth/token/refresh
       - /auth/forgot-password
       - /auth/reset-password
+
+      # misc
       - /users/ping
       - /pricing/quote
       - /pricing/service-types
       - /orders/track
       - /actuator/**
+      - /drivers/location/**
 
 management:
   endpoints:

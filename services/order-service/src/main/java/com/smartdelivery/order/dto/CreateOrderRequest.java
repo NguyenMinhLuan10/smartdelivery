@@ -12,14 +12,22 @@ import java.util.Set;
 @Data
 public class CreateOrderRequest {
 
-    @Data public static class Party {
+    @Data
+    public static class Party {
         @NotBlank private String name;
         @NotBlank private String phone;
     }
 
-    @Data public static class Points {
+    @Data
+    public static class Points {
         @NotBlank private String pickupAddress;
         @NotBlank private String dropoffAddress;
+
+        // 👇 THÊM: để FE gửi thẳng tọa độ
+        private Double pickupLat;
+        private Double pickupLng;
+        private Double dropoffLat;
+        private Double dropoffLng;
     }
 
     // ==== BẮT BUỘC (giữ nguyên chữ ký cũ) ====

@@ -1,10 +1,11 @@
-// src/main/java/com/smartdelivery/shipment/service/DriverFlowService.java
 package com.smartdelivery.shipment.service;
 
 import com.smartdelivery.shipment.client.DriverClient;
 import com.smartdelivery.shipment.client.OrderClient;
 import com.smartdelivery.shipment.dto.*;
+import com.smartdelivery.shipment.firebase.FirebaseGateway;
 import com.smartdelivery.shipment.model.Pod;
+import com.smartdelivery.shipment.model.DriverTask;
 import com.smartdelivery.shipment.repository.DriverTaskRepository;
 import com.smartdelivery.shipment.repository.HubRepository;
 import com.smartdelivery.shipment.repository.LegRepository;
@@ -19,8 +20,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.OffsetDateTime;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -33,15 +34,14 @@ public class DriverFlowService {
     private final LegRepository legs;
     private final HubRepository hubs;
     private final DriverClient driverClient;
+    private final FirebaseGateway fb;
 
-    // ===== Helpers =====
-
+    // ===== helpers =====
     private static String bearer(HttpServletRequest req) {
         String h = req.getHeader("Authorization");
         return (h != null && !h.isBlank()) ? h : null;
     }
 
-    /** Lấy userId từ token và resolve sang driverId qua driver-service (forward token). */
     private UUID requireDriverId(Authentication auth, String bearer) {
         final UUID userId;
         try {
@@ -49,7 +49,6 @@ public class DriverFlowService {
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid subject");
         }
-
         try {
             UUID driverId = driverClient.resolveDriverId(userId, bearer);
             log.info("Resolved driverId={} from userId={}", driverId, userId);
@@ -59,50 +58,82 @@ public class DriverFlowService {
         }
     }
 
-    private void requireLegType(UUID legId, String type){
+    private void requireLegType(UUID legId, String type) {
         var leg = legs.findById(legId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Leg not found: " + legId));
-        if (!type.equalsIgnoreCase(leg.getLegType()))
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Require legType=" + type + " but was " + leg.getLegType());
+        if (!type.equalsIgnoreCase(leg.getLegType())) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Require legType=" + type + " but was " + leg.getLegType()
+            );
+        }
     }
 
-    private void transitionLeg(UUID legId, String to, boolean setStart, boolean setEnd){
+    private void transitionLeg(UUID legId, String to, boolean setStart, boolean setEnd) {
         var leg = legs.findById(legId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Leg not found: " + legId));
         String from = leg.getStatus();
         leg.setStatus(to);
-        if (setStart && leg.getActualStart() == null) leg.setActualStart(OffsetDateTime.now());
-        if (setEnd) leg.setActualEnd(OffsetDateTime.now());
+        if (setStart && leg.getActualStart() == null) {
+            leg.setActualStart(OffsetDateTime.now());
+        }
+        if (setEnd) {
+            leg.setActualEnd(OffsetDateTime.now());
+        }
         legs.save(leg);
         log.info("transitionLeg(): {} -> {} (legId={})", from, to, legId);
     }
 
-    // ===== Common check (hỗ trợ cả DB cũ lưu userId) =====
     private boolean matchesDriverOrUser(UUID taskDriverId, UUID driverId, UUID userId) {
         return taskDriverId.equals(driverId) || taskDriverId.equals(userId);
     }
 
-    // ===== Handlers =====
+    private String findLegType(UUID legId) {
+        if (legId == null) return null;
+        return legs.findById(legId).map(l -> l.getLegType()).orElse(null);
+    }
 
+    // ================== QUERIES ==================
     public List<TaskSummaryResponse> myTasks(Authentication auth, HttpServletRequest req) {
-        var bearer = bearer(req);
-        var driverId = requireDriverId(auth, bearer);
-        var userId = UUID.fromString(auth.getName());
+        final String bearer = bearer(req);
+        final UUID driverId = requireDriverId(auth, bearer);
+        final UUID userId = UUID.fromString(auth.getName());
         log.info("myTasks(): driverId={}, userId={}", driverId, userId);
 
-        var result = tasks.findByDriverIdOrderByAssignedAtDesc(driverId);
+        List<DriverTask> result = tasks.findByDriverIdOrderByAssignedAtDesc(driverId);
         if (result.isEmpty()) {
-            // fallback: nếu DB vẫn lưu userId
             result = tasks.findByDriverIdOrderByAssignedAtDesc(userId);
-            if (!result.isEmpty())
+            if (!result.isEmpty()) {
                 log.warn("myTasks(): fallback matched by userId (DB chưa migrate).");
+            }
+        }
+        if (result.isEmpty()) {
+            log.info("myTasks(): found 0 tasks for driverId={}", driverId);
+            return Collections.emptyList();
         }
 
-        var responses = result.stream()
+        final Set<UUID> legIds = result.stream()
+                .map(DriverTask::getLegId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        final Map<UUID, String> legTypes;
+        if (!legIds.isEmpty()) {
+            var legEntities = legs.findAllById(legIds);
+            legTypes = legEntities.stream()
+                    .collect(Collectors.toMap(
+                            l -> l.getId(),
+                            l -> l.getLegType()
+                    ));
+        } else {
+            legTypes = Collections.emptyMap();
+        }
+
+        List<TaskSummaryResponse> responses = result.stream()
                 .map(t -> TaskSummaryResponse.builder()
                         .taskId(t.getId())
                         .legId(t.getLegId())
+                        .legType(t.getLegId() != null ? legTypes.get(t.getLegId()) : null)
                         .trackingCode(t.getTrackingCode())
                         .status(t.getStatus())
                         .assignedAt(t.getAssignedAt())
@@ -113,109 +144,132 @@ public class DriverFlowService {
         return responses;
     }
 
+    // ================== ACTIONS ==================
+
     @Transactional
-    public void accept(UUID taskId, Authentication auth, HttpServletRequest req){
-        var bearer = bearer(req);
-        var driverId = requireDriverId(auth, bearer);
-        var userId = UUID.fromString(auth.getName());
+    public void accept(UUID taskId, Authentication auth, HttpServletRequest req) {
+        final String bearer = bearer(req);
+        final UUID driverId = requireDriverId(auth, bearer);
+        final UUID userId = UUID.fromString(auth.getName());
 
         var t = tasks.findById(taskId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Task not found: " + taskId));
 
         if (!matchesDriverOrUser(t.getDriverId(), driverId, userId)) {
-            log.error("accept(): Forbidden - driverId={} userId={} task.driverId={}", driverId, userId, t.getDriverId());
+            log.error("accept(): Forbidden - driverId={} userId={} task.driverId={}",
+                    driverId, userId, t.getDriverId());
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Task does not belong to current driver");
         }
-
-        if (!"ASSIGNED".equalsIgnoreCase(t.getStatus()))
+        if (!"ASSIGNED".equalsIgnoreCase(t.getStatus())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid state: " + t.getStatus());
+        }
 
         t.setStatus("ACCEPTED");
         t.setStartTime(OffsetDateTime.now());
         tasks.save(t);
+
+        fb.updateDriverTaskStatus(t.getDriverId(), t.getId(), t.getStatus());
     }
 
     @Transactional
-    public void reject(UUID taskId, Authentication auth, HttpServletRequest req){
-        var bearer = bearer(req);
-        var driverId = requireDriverId(auth, bearer);
-        var userId = UUID.fromString(auth.getName());
+    public void reject(UUID taskId, Authentication auth, HttpServletRequest req) {
+        final String bearer = bearer(req);
+        final UUID driverId = requireDriverId(auth, bearer);
+        final UUID userId = UUID.fromString(auth.getName());
 
         var t = tasks.findById(taskId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Task not found: " + taskId));
 
-        if (!matchesDriverOrUser(t.getDriverId(), driverId, userId))
+        if (!matchesDriverOrUser(t.getDriverId(), driverId, userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Task does not belong to current driver");
+        }
 
         t.setStatus("CANCELLED");
         tasks.save(t);
+
+        fb.deleteDriverTask(t.getDriverId(), t.getId());
     }
 
     @Transactional
-    public void scanPickup(PickupScanRequest body, Authentication auth, HttpServletRequest req){
-        var bearer = bearer(req);
-        var driverId = requireDriverId(auth, bearer);
-        var userId = UUID.fromString(auth.getName());
+    public void scanPickup(PickupScanRequest body, Authentication auth, HttpServletRequest req) {
+        final String bearer = bearer(req);
+        final UUID driverId = requireDriverId(auth, bearer);
+        final UUID userId = UUID.fromString(auth.getName());
 
         var t = tasks.findById(body.getTaskId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Task not found: " + body.getTaskId()));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Task not found: " + body.getTaskId()));
 
-        if (!matchesDriverOrUser(t.getDriverId(), driverId, userId))
+        if (!matchesDriverOrUser(t.getDriverId(), driverId, userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Task does not belong to current driver");
-
+        }
         requireLegType(t.getLegId(), "PICKUP");
-        if (!t.getTrackingCode().equals(body.getTrackingCode()))
+
+        if (!t.getTrackingCode().equals(body.getTrackingCode())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Tracking mismatch");
+        }
 
         try {
-            orderClient.transition(t.getOrderId(),
-                    new OrderStatusChangeRequest("PICKED_UP","driver_scan_pickup"),
-                    bearer);
-        } catch (Exception ignored){}
+            orderClient.transition(
+                    t.getOrderId(),
+                    new OrderStatusChangeRequest("PICKED_UP", "driver_scan_pickup"),
+                    bearer
+            );
+        } catch (Exception ignored) {}
 
         t.setStatus("STARTED");
         t.setStartTime(OffsetDateTime.now());
         tasks.save(t);
         transitionLeg(t.getLegId(), "IN_TRANSIT", true, false);
+
+        fb.updateDriverTaskStatus(t.getDriverId(), t.getId(), t.getStatus());
     }
 
     @Transactional
-    public void outForDelivery(OutForDeliveryRequest body, Authentication auth, HttpServletRequest req){
-        var bearer = bearer(req);
-        var driverId = requireDriverId(auth, bearer);
-        var userId = UUID.fromString(auth.getName());
+    public void outForDelivery(OutForDeliveryRequest body, Authentication auth, HttpServletRequest req) {
+        final String bearer = bearer(req);
+        final UUID driverId = requireDriverId(auth, bearer);
+        final UUID userId = UUID.fromString(auth.getName());
 
         var t = tasks.findById(body.getTaskId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Task not found: " + body.getTaskId()));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Task not found: " + body.getTaskId()));
 
-        if (!matchesDriverOrUser(t.getDriverId(), driverId, userId))
+        if (!matchesDriverOrUser(t.getDriverId(), driverId, userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Task does not belong to current driver");
-
+        }
         requireLegType(t.getLegId(), "DELIVERY");
 
         try {
-            orderClient.transition(t.getOrderId(),
-                    new OrderStatusChangeRequest("OUT_FOR_DELIVERY","driver_start_ofd"),
-                    bearer);
-        } catch (Exception ignored){}
+            orderClient.transition(
+                    t.getOrderId(),
+                    new OrderStatusChangeRequest("OUT_FOR_DELIVERY", "driver_start_ofd"),
+                    bearer
+            );
+        } catch (Exception ignored) {}
 
-        if (!"STARTED".equalsIgnoreCase(t.getStatus())) t.setStatus("STARTED");
+        if (!"STARTED".equalsIgnoreCase(t.getStatus())) {
+            t.setStatus("STARTED");
+        }
         tasks.save(t);
         transitionLeg(t.getLegId(), "IN_TRANSIT", true, false);
+
+        fb.updateDriverTaskStatus(t.getDriverId(), t.getId(), t.getStatus());
     }
 
     @Transactional
-    public void delivered(DeliveredRequest body, Authentication auth, HttpServletRequest req){
-        var bearer = bearer(req);
-        var driverId = requireDriverId(auth, bearer);
-        var userId = UUID.fromString(auth.getName());
+    public void delivered(DeliveredRequest body, Authentication auth, HttpServletRequest req) {
+        final String bearer = bearer(req);
+        final UUID driverId = requireDriverId(auth, bearer);
+        final UUID userId = UUID.fromString(auth.getName());
 
         var t = tasks.findById(body.getTaskId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Task not found: " + body.getTaskId()));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Task not found: " + body.getTaskId()));
 
-        if (!matchesDriverOrUser(t.getDriverId(), driverId, userId))
+        if (!matchesDriverOrUser(t.getDriverId(), driverId, userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Task does not belong to current driver");
-
+        }
         requireLegType(t.getLegId(), "DELIVERY");
 
         pods.save(Pod.builder()
@@ -233,23 +287,29 @@ public class DriverFlowService {
         transitionLeg(t.getLegId(), "COMPLETED", false, true);
 
         try {
-            orderClient.transition(t.getOrderId(),
-                    new OrderStatusChangeRequest("DELIVERED","driver_pod_ok"),
-                    bearer);
-        } catch (Exception ignored){}
+            orderClient.transition(
+                    t.getOrderId(),
+                    new OrderStatusChangeRequest("DELIVERED", "driver_pod_ok"),
+                    bearer
+            );
+        } catch (Exception ignored) {}
+
+        fb.updateDriverTaskStatus(t.getDriverId(), t.getId(), t.getStatus());
     }
 
     @Transactional
-    public void failed(FailedRequest body, Authentication auth, HttpServletRequest req){
-        var bearer = bearer(req);
-        var driverId = requireDriverId(auth, bearer);
-        var userId = UUID.fromString(auth.getName());
+    public void failed(FailedRequest body, Authentication auth, HttpServletRequest req) {
+        final String bearer = bearer(req);
+        final UUID driverId = requireDriverId(auth, bearer);
+        final UUID userId = UUID.fromString(auth.getName());
 
         var t = tasks.findById(body.getTaskId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Task not found: " + body.getTaskId()));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Task not found: " + body.getTaskId()));
 
-        if (!matchesDriverOrUser(t.getDriverId(), driverId, userId))
+        if (!matchesDriverOrUser(t.getDriverId(), driverId, userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Task does not belong to current driver");
+        }
 
         t.setStatus("FAILED");
         t.setFailedTime(OffsetDateTime.now());
@@ -257,36 +317,52 @@ public class DriverFlowService {
         tasks.save(t);
 
         try {
-            orderClient.transition(t.getOrderId(),
+            orderClient.transition(
+                    t.getOrderId(),
                     new OrderStatusChangeRequest("FAILED", body.getReason()),
-                    bearer);
-        } catch (Exception ignored){}
+                    bearer
+            );
+        } catch (Exception ignored) {}
+
+        fb.updateDriverTaskStatus(t.getDriverId(), t.getId(), t.getStatus());
     }
 
     @Transactional
-    public void scanInboundHub(HubScanRequest body, Authentication auth, HttpServletRequest req){
-        var bearer = bearer(req);
-        var driverId = requireDriverId(auth, bearer);
-        var userId = UUID.fromString(auth.getName());
+    public void scanInboundHub(HubScanRequest body, Authentication auth, HttpServletRequest req) {
+        final String bearer = bearer(req);
+        final UUID driverId = requireDriverId(auth, bearer);
+        final UUID userId = UUID.fromString(auth.getName());
 
         var t = tasks.findById(body.getTaskId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Task not found: " + body.getTaskId()));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Task not found: " + body.getTaskId()));
 
-        if (!matchesDriverOrUser(t.getDriverId(), driverId, userId))
+        if (!matchesDriverOrUser(t.getDriverId(), driverId, userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Task does not belong to current driver");
+        }
+
+        if (body.getTrackingCode() != null
+                && !body.getTrackingCode().isBlank()
+                && !t.getTrackingCode().equals(body.getTrackingCode())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Tracking mismatch");
+        }
 
         hubs.findByCode(body.getHubCode())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,"Unknown hubCode"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown hubCode"));
 
         try {
-            orderClient.transition(t.getOrderId(),
-                    new OrderStatusChangeRequest("AT_ORIGIN_HUB","driver_scan_inbound_origin_hub"),
-                    bearer);
-        } catch (Exception ignored){}
+            orderClient.transition(
+                    t.getOrderId(),
+                    new OrderStatusChangeRequest("AT_ORIGIN_HUB", "driver_scan_inbound_origin_hub"),
+                    bearer
+            );
+        } catch (Exception ignored) {}
 
-        var leg = legs.findById(t.getLegId()).orElseThrow(() ->
-                new ResponseStatusException(HttpStatus.NOT_FOUND, "Leg not found: " + t.getLegId()));
+        var leg = legs.findById(t.getLegId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Leg not found: " + t.getLegId()));
 
+        // ✅ PICKUP leg hoàn tất
         if ("PICKUP".equalsIgnoreCase(leg.getLegType())) {
             if (!"COMPLETED".equalsIgnoreCase(leg.getStatus())) {
                 leg.setStatus("COMPLETED");
@@ -295,10 +371,15 @@ public class DriverFlowService {
             }
         }
 
-        if (!"DELIVERED".equalsIgnoreCase(t.getStatus())) {
-            t.setStatus("DELIVERED");
-            t.setDeliveredTime(OffsetDateTime.now());
+        // ✅ Task PICKUP chỉ = COMPLETED (không phải DELIVERED)
+        if (!"COMPLETED".equalsIgnoreCase(t.getStatus())) {
+            t.setStatus("COMPLETED");
+            // không set deliveredTime cho pickup
+            tasks.save(t);
+        } else {
             tasks.save(t);
         }
+
+        fb.updateDriverTaskStatus(t.getDriverId(), t.getId(), t.getStatus());
     }
 }

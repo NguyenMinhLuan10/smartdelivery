@@ -30,17 +30,24 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     private static final AntPathMatcher PM = new AntPathMatcher();
 
-    // Các path public (mở thêm swagger nếu cần)
+    // Các path public
     private static final String[] PUBLIC = {
             "/actuator/**",
             "/v3/api-docs/**",
-            "/swagger-ui/**"
+            "/swagger-ui/**",
+            "/swagger-ui.html",
+            "/dev/**",
+            "/driver/dev/**",
+            "/internal/drivers/sync",
+
     };
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getServletPath();
-        for (String p : PUBLIC) if (PM.match(p, path)) return true;
+        for (String p : PUBLIC) {
+            if (PM.match(p, path)) return true;
+        }
         return false;
     }
 
@@ -59,8 +66,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                         .parseClaimsJws(token)
                         .getBody();
 
-                String sub  = claims.getSubject();          // userId (UUID)
-                String role = (String) claims.get("role");  // DRIVER / DISPATCHER / ADMIN...
+                String sub  = claims.getSubject();          // userId
+                String role = (String) claims.get("role");  // DRIVER / ADMIN...
 
                 var auth = new UsernamePasswordAuthenticationToken(
                         sub,
@@ -69,7 +76,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 );
                 SecurityContextHolder.getContext().setAuthentication(auth);
             } catch (Exception ignored) {
-                // để rơi vào 401/403 nếu token sai
+                // token sai thì để rơi vào 401/403
             }
         }
         chain.doFilter(req, res);

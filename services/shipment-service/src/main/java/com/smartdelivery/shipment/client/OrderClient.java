@@ -1,4 +1,3 @@
-// client/OrderClient.java
 package com.smartdelivery.shipment.client;
 
 import com.smartdelivery.shipment.dto.OrderStatusChangeRequest;
@@ -9,9 +8,11 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.Map;            // 👈 THÊM
 import java.util.UUID;
 
-@Component @RequiredArgsConstructor
+@Component
+@RequiredArgsConstructor
 public class OrderClient {
     private final RestTemplate rest;
     @Value("${app.gateway.base-url:http://localhost:8085}") private String gw;
@@ -28,6 +29,15 @@ public class OrderClient {
         h.setBearerAuth(extractToken(auth));
         var req = new HttpEntity<>(body, h);
         var url = gw + "/internal/orders/{id}/status";
+        rest.exchange(url, HttpMethod.POST, req, Void.class, orderId);
+    }
+
+    // 👇 THÊM: gọi order-service để lưu driver đã assign (đồng bộ DB)
+    public void setAssignedDriver(UUID orderId, UUID driverId, String auth){
+        HttpHeaders h = new HttpHeaders(); h.setContentType(MediaType.APPLICATION_JSON);
+        h.setBearerAuth(extractToken(auth));
+        var req = new HttpEntity<>(Map.of("driverId", driverId), h);
+        var url = gw + "/internal/orders/{id}/assign-driver";
         rest.exchange(url, HttpMethod.POST, req, Void.class, orderId);
     }
 
